@@ -194,8 +194,8 @@
           const move = new THREE.Vector3();
           if (keys["KeyW"]) move.add(forward);
           if (keys["KeyS"]) move.sub(forward);
-          if (keys["KeyD"]) camera.position.addScaledVector(right, speed * dt);
-          if (keys["KeyA"]) camera.position.addScaledVector(right, -speed * dt);
+          if (keys["KeyD"]) move.add(right);
+          if (keys["KeyA"]) move.sub(right);
 
           if (move.lengthSq() > 0) {
             move.normalize();
