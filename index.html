@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Zoo</title>
+
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      #ui {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        color: white;
+        font-family: system-ui, sans-serif;
+        background: rgba(0,0,0,0.5);
+        padding: 12px 14px;
+        border-radius: 12px;
+        max-width: 360px;
+        line-height: 1.35;
+      }
+      #btn {
+        margin-top: 10px;
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 0;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      #small {
+        opacity: 0.9;
+        font-size: 13px;
+        margin-top: 6px;
+      }
+    </style>
+
+    <!-- Import map -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+  </head>
+
+  <body>
+    <div id="ui">
+      <b>My Zoo</b><br />
+      Click <b>Start</b> then use <b>WASD</b> + mouse to look.<br />
+      <b>Esc</b> releases mouse.
+      <div id="small">
+        Tip: If walking feels slow/fast, change <code>WALK_SPEED</code> below.
+      </div>
+      <button id="btn">Start</button>
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
+
+      // ===== Tunables =====
+      const EYE_HEIGHT = 1.7;          // “human” camera height
+      const WALK_SPEED = 10;           // units/second (increase if world feels big)
+      const HEIGHT_SMOOTH = 0.25;      // 0..1 (higher = snappier to ground)
+      const RAY_START_ABOVE = 100;     // how far above we cast from
+      const RAY_MAX_DISTANCE = 500;    // how far down we search for ground
+      const WORLD_FORWARD_NUDGE = 0.0; // keep 0 unless you want to offset world
+
+      // Scene
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb);
+
+      // Camera
+      const camera = new THREE.PerspectiveCamera(
+        70,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        5000
+      );
+      camera.position.set(0, 5, 15);
+
+      // Renderer
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      document.body.appendChild(renderer.domElement);
+
+      // Lights
+      scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+      const sun = new THREE.DirectionalLight(0xffffff, 0.85);
+      sun.position.set(50, 80, 30);
+      scene.add(sun);
+
+      // Controls
+      const controls = new PointerLockControls(camera, document.body);
+      document.getElementById("btn").onclick = () => controls.lock();
+      controls.addEventListener("lock", () => (document.getElementById("ui").style.display = "none"));
+      controls.addEventListener("unlock", () => (document.getElementById("ui").style.display = "block"));
+
+      // Ground follow helpers
+      const raycaster = new THREE.Raycaster();
+      const down = new THREE.Vector3(0, -1, 0);
+      let groundMeshes = [];
+      let worldRoot = null;
+
+      function setGroundedHeight() {
+        if (!groundMeshes.length) return;
+
+        const origin = camera.position.clone();
+        origin.y += RAY_START_ABOVE;
+
+        raycaster.far = RAY_START_ABOVE + RAY_MAX_DISTANCE;
+        raycaster.set(origin, down);
+
+        const hits = raycaster.intersectObjects(groundMeshes, true);
+        if (hits.length > 0) {
+          const groundY = hits[0].point.y;
+          const targetY = groundY + EYE_HEIGHT;
+          camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, HEIGHT_SMOOTH);
+        }
+      }
+
+      // Load terrain
+      const loader = new GLTFLoader();
+      loader.load(
+        "./zoo_terrain.glb",
+        (gltf) => {
+          const world = gltf.scene;
+          worldRoot = world;
+          scene.add(world);
+
+          // Collect meshes for raycasting
+          groundMeshes = [];
+          world.traverse((obj) => {
+            if (obj.isMesh) {
+              // Helpful for raycasting performance/accuracy
+              obj.frustumCulled = true;
+              groundMeshes.push(obj);
+            }
+          });
+
+          // Auto-center model at origin (so camera + movement are sane)
+          const box = new THREE.Box3().setFromObject(world);
+          const center = box.getCenter(new THREE.Vector3());
+          world.position.sub(center);
+          world.position.z += WORLD_FORWARD_NUDGE;
+
+          // Recompute box after centering
+          const box2 = new THREE.Box3().setFromObject(world);
+          const size = box2.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+
+          // Start closer than before
+          camera.position.set(0, maxDim * 0.25 + 5, maxDim * 0.45 + 8);
+          camera.lookAt(0, 0, 0);
+
+          // Snap to ground once so you don’t start underground/too high
+          setGroundedHeight();
+
+          console.log("Terrain loaded. size:", size);
+        },
+        undefined,
+        (err) => console.error(err)
+      );
+
+      // Movement keys
+      const keys = {};
+      window.addEventListener("keydown", (e) => (keys[e.code] = true));
+      window.addEventListener("keyup", (e) => (keys[e.code] = false));
+
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = Math.min(clock.getDelta(), 0.05);
+
+        if (controls.isLocked) {
+          // Move on XZ plane only
+          const forward = new THREE.Vector3();
+          camera.getWorldDirection(forward);
+          forward.y = 0;
+          forward.normalize();
+
+          const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize().multiplyScalar(-1);
+
+          const move = new THREE.Vector3();
+          if (keys["KeyW"]) move.add(forward);
+          if (keys["KeyS"]) move.sub(forward);
+          if (keys["KeyD"]) move.add(right);
+          if (keys["KeyA"]) move.sub(right);
+
+          if (move.lengthSq() > 0) {
+            move.normalize();
+            camera.position.addScaledVector(move, WALK_SPEED * dt);
+          }
+
+          // Ground follow keeps you on top of the terrain
+          setGroundedHeight();
+        }
+
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>
