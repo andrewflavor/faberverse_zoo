@@ -188,7 +188,7 @@
           forward.y = 0;
           forward.normalize();
 
-          const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize().multiplyScalar(-1);
+          const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
 
           const move = new THREE.Vector3();
           if (keys["KeyW"]) move.add(forward);
