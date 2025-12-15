@@ -105,58 +105,11 @@
       controls.addEventListener("lock", () => (document.getElementById("ui").style.display = "none"));
       controls.addEventListener("unlock", () => (document.getElementById("ui").style.display = "block"));
 
-      // Ground + Animal collision helpers (simple + mobile-friendly)
+      // Ground follow helpers
       const raycaster = new THREE.Raycaster();
-      const DOWN = new THREE.Vector3(0, -1, 0);
-
-      // Walkable surfaces (volcano/terrain/etc.)
+      const down = new THREE.Vector3(0, -1, 0);
       let groundMeshes = [];
-      // Animals you should not walk through
-      let animalMeshes = [];
-
-      // If your GLB object names include these words, we'll auto-detect them.
-      // Tip: rename in Blender to make this perfect (e.g. VOLCANO_GROUND, ELEPHANT_ANIMAL).
-      const GROUND_NAME_HINTS = ["ground", "terrain", "volcano", "mountain", "path", "rock", "floor"];
-      const ANIMAL_NAME_HINTS = ["animal", "elephant", "giraffe", "zebra", "lion", "tiger", "bear", "monkey", "penguin", "hippo", "rhino"];
-
-      const GROUND_NORMAL_MIN_Y = 0.25; // ignore walls/undersides (0.0 = any, 1.0 = perfectly up)
-      const MAX_STEP_UP = 0.8;          // prevent snapping up huge cliffs in one frame
-
-      function looksLikeAnimal(obj) {
-        const n = (obj.name || "").toLowerCase();
-        if (obj.isSkinnedMesh) return true; // skinned meshes are almost always characters/animals
-        return ANIMAL_NAME_HINTS.some((k) => n.includes(k));
-      }
-
-      function looksLikeGround(obj) {
-        const n = (obj.name || "").toLowerCase();
-        return GROUND_NAME_HINTS.some((k) => n.includes(k));
-      }
-
-      function buildCollisionLists(root) {
-        groundMeshes = [];
-        animalMeshes = [];
-
-        root.traverse((obj) => {
-          if (!obj.isMesh) return;
-
-          // Keep raycasting accurate
-          obj.frustumCulled = true;
-
-          // Classify: animals vs ground. If we can't tell, default to ground.
-          if (looksLikeAnimal(obj)) {
-            animalMeshes.push(obj);
-          } else if (looksLikeGround(obj)) {
-            groundMeshes.push(obj);
-          } else {
-            groundMeshes.push(obj);
-          }
-        });
-
-        // If everything got classified as ground (common if nothing is named),
-        // it's still fine — animals won't be blocked unless they are SkinnedMesh or named like an animal.
-        console.log("Collision lists:", { ground: groundMeshes.length, animals: animalMeshes.length });
-      }
+      let worldRoot = null;
 
       function setGroundedHeight() {
         if (!groundMeshes.length) return;
@@ -165,69 +118,34 @@
         origin.y += RAY_START_ABOVE;
 
         raycaster.far = RAY_START_ABOVE + RAY_MAX_DISTANCE;
-        raycaster.set(origin, DOWN);
+        raycaster.set(origin, down);
 
         const hits = raycaster.intersectObjects(groundMeshes, true);
-        if (!hits.length) return;
-
-        // Pick the first "walkable" face (normal points upward-ish).
-        // If face normals are missing for any reason, fall back to the closest hit.
-        const hit =
-          hits.find((h) => h.face && h.face.normal && h.face.normal.y > GROUND_NORMAL_MIN_Y) || hits[0];
-
-        const groundY = hit.point.y;
-        const targetY = groundY + EYE_HEIGHT;
-        const delta = targetY - camera.position.y;
-
-        // Don't teleport up huge steps
-        if (delta > MAX_STEP_UP) return;
-
-        camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, HEIGHT_SMOOTH);
-      }
-
-      function blockAgainstAnimals() {
-        if (!animalMeshes.length) return;
-
-        // Treat each animal like a circle on the XZ plane (cheap + works great).
-        const animalPos = new THREE.Vector3();
-        const scale = new THREE.Vector3();
-
-        for (const a of animalMeshes) {
-          // Cache a radius for this mesh (bounding sphere * scale)
-          if (!a.userData.blockRadius) {
-            if (a.geometry && !a.geometry.boundingSphere) a.geometry.computeBoundingSphere();
-            a.getWorldScale(scale);
-            const maxScale = Math.max(scale.x, scale.y, scale.z);
-            const base = a.geometry?.boundingSphere?.radius ?? 1.0;
-            a.userData.blockRadius = base * maxScale * 0.9;
-          }
-
-          a.getWorldPosition(animalPos);
-
-          const r = a.userData.blockRadius;
-          const dx = camera.position.x - animalPos.x;
-          const dz = camera.position.z - animalPos.z;
-          const dist = Math.hypot(dx, dz);
-
-          if (dist < r && dist > 0.0001) {
-            const push = r - dist;
-            camera.position.x += (dx / dist) * push;
-            camera.position.z += (dz / dist) * push;
-          }
+        if (hits.length > 0) {
+          const groundY = hits[0].point.y;
+          const targetY = groundY + EYE_HEIGHT;
+          camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, HEIGHT_SMOOTH);
         }
       }
 
       // Load terrain
       const loader = new GLTFLoader();
       loader.load(
-        "./zoo_terrain_v1.glb",
+        "./zoo_terrain.glb",
         (gltf) => {
           const world = gltf.scene;
           worldRoot = world;
           scene.add(world);
 
-          // Build collision lists (ground vs animals)
-          buildCollisionLists(world);
+          // Collect meshes for raycasting
+          groundMeshes = [];
+          world.traverse((obj) => {
+            if (obj.isMesh) {
+              // Helpful for raycasting performance/accuracy
+              obj.frustumCulled = true;
+              groundMeshes.push(obj);
+            }
+          });
 
           // Auto-center model at origin (so camera + movement are sane)
           const box = new THREE.Box3().setFromObject(world);
@@ -283,10 +201,7 @@
             camera.position.addScaledVector(move, WALK_SPEED * dt);
           }
 
-          // Don't walk through animals (simple blockers)
-          blockAgainstAnimals();
-
-          // Ground follow keeps you on top of the terrain/volcano
+          // Ground follow keeps you on top of the terrain
           setGroundedHeight();
         }
 
