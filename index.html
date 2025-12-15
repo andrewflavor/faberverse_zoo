@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Zoo</title>
+    <title>Faberverse Digital Zoo</title>
 
     <style>
       html, body {
@@ -52,11 +52,11 @@
 
   <body>
     <div id="ui">
-      <b>My Zoo</b><br />
+      <b>Faberverse Digital Zoo</b><br />
       Click <b>Start</b> then use <b>WASD</b> + mouse to look.<br />
       <b>Esc</b> releases mouse.
       <div id="small">
-        Tip: If walking feels slow/fast, change <code>WALK_SPEED</code> below.
+        Tip: Ahoy! If walking feels slow/fast, change <code>WALK_SPEED</code> below.
       </div>
       <button id="btn">Start</button>
     </div>
@@ -132,7 +132,7 @@
       // Load terrain
       const loader = new GLTFLoader();
       loader.load(
-        "./zoo_terrain.glb",
+        "./zoo_terrain_v1.glb",
         (gltf) => {
           const world = gltf.scene;
           worldRoot = world;
